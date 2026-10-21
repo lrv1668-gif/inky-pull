@@ -1,0 +1,20 @@
+# Install: sudo cp systemd/inkypull.service /etc/systemd/system/
+#          (edit User= and ExecStart= to match your inky venv), then
+#          sudo systemctl daemon-reload && sudo systemctl enable --now inkypull
+[Unit]
+Description=inkypull: show an image URL on an Inky e-paper display
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# The user that installed inky (needs the spi, i2c and gpio groups).
+User=pi
+# The venv Pimoroni's installer created, with inkypull installed into it.
+ExecStart=/home/pi/.virtualenvs/pimoroni/bin/inkypull run --config /etc/inkypull/config.toml
+Restart=on-failure
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

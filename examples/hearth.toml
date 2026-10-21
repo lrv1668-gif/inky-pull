@@ -1,0 +1,29 @@
+# inkypull configuration for a Hearth (self-hosted home dashboard) e-paper frame.
+#
+# Hearth's Display service serves the frame as a 6-colour palette PNG, already dithered
+# on the host, with an ETag — so inkypull shows it pixel-for-pixel and only refreshes the
+# panel when the frame actually changes. Replace hearth.local with your host's address.
+#
+# The /display/frame and /display/mode endpoints are the contract planned in Hearth's
+# docs/HARDWARE.md; adjust the paths and bodies to whatever the Display service ships.
+
+url = "http://hearth.local/display/frame"
+poll_interval = "1m"   # cheap: an unchanged frame is a 304
+rotate = 0             # the host already rotates portrait frames to the panel's landscape
+error_after = 5
+
+[buttons]
+long_press = "1s"
+
+[buttons.A]
+press = "refresh"
+
+[buttons.B]   # Ambient ↔ Daily
+press = { action = "http", method = "POST", url = "http://hearth.local/display/mode", json = { mode = "toggle" }, then = "refresh" }
+
+[buttons.C]   # Color ↔ B&W
+press = { action = "http", method = "POST", url = "http://hearth.local/display/mode", json = { palette = "toggle" }, then = "refresh" }
+
+[buttons.D]
+press = "status"
+long_press = { action = "command", run = ["sudo", "systemctl", "reboot"] }

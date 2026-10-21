@@ -1,0 +1,47 @@
+# inkypull configuration. Copy to /etc/inkypull/config.toml (or ~/.config/inkypull/config.toml).
+# Durations are seconds, or strings like "90s", "5m", "1h".
+
+# The image to show. Must return an image/* response (PNG, JPEG, …).
+url = "http://example.com/frame.png"
+
+# Extra request headers, e.g. for a token-protected endpoint.
+# headers = { Authorization = "Bearer change-me" }
+
+poll_interval = "5m"     # how often to check for a new image
+timeout = "30s"          # per request
+
+# Images that use only the panel's six inks are shown exactly as-is. Everything else is
+# dithered by inky; saturation (0–1) picks how vivid its palette is.
+saturation = 0.5
+
+fit = "contain"          # contain (letterbox) | cover (crop) | stretch
+background = "white"     # letterbox colour
+rotate = 0               # clockwise degrees: 0 | 90 | 180 | 270, or "auto" to turn portrait images
+# portrait_rotate = 90   # with rotate = "auto": 90 (clockwise) or 270
+
+driver = "auto"          # auto-detect from the board's EEPROM, or e.g. "el133uf1" for the 13.3"
+
+# quiet_hours = "23:00-06:30"   # don't poll (button presses still work)
+error_after = 3                 # consecutive failures before showing "can't reach"
+# state_dir = "~/.local/state/inkypull"
+
+[buttons]
+# BCM GPIO pins. Defaults suit the Inky Impression 13.3"; smaller Impressions use C = 16.
+# pins = { A = 5, B = 6, C = 25, D = 24 }
+long_press = "1s"
+
+# Each button can have a `press` and a `long_press` action (long press falls back to press).
+# Actions:
+#   "refresh"                                   fetch now and redraw
+#   { action = "http", url = "...", method = "POST", json = {...}, headers = {...}, then = "refresh" }
+#   { action = "command", run = ["argv", "..."], timeout = "30s", then = "refresh" }
+#   { action = "cycle", urls = ["...", "..."] } switch between image URLs (remembered)
+#   "status"                                    show URL, IP, last update, last error
+#   "none"
+
+[buttons.A]
+press = "refresh"
+
+[buttons.D]
+press = "status"
+long_press = { action = "command", run = ["sudo", "systemctl", "reboot"] }
