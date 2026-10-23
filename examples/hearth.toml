@@ -1,15 +1,23 @@
 # inkypull configuration for a Hearth (self-hosted home dashboard) e-paper frame.
 #
 # Hearth's Display service serves the frame as a 6-colour palette PNG, already dithered
-# on the host, with an ETag — so inkypull shows it pixel-for-pixel and only refreshes the
-# panel when the frame actually changes. Replace hearth.local with your host's address.
+# on the host (ordered for Daily, Countdown, Night and Note; error diffusion for the
+# Ambient and Photo modes), with an ETag — so inkypull shows it pixel-for-pixel and only
+# refreshes the panel when the frame actually changes. Replace hearth.local with your
+# host's address.
 #
-# The /display/frame and /display/mode endpoints are the contract planned in Hearth's
-# docs/HARDWARE.md; adjust the paths and bodies to whatever the Display service ships.
+# Keep plain http://: Hearth's Caddy serves HTTPS with its own local CA, which the Pi
+# doesn't trust, and keeps port 80 open for LAN clients like the frame.
+#
+# Built in Hearth: the mode endpoints (POST /display/mode/next, DELETE
+# /display/mode/override). Still planned in Hearth's docs/HARDWARE.md: GET /display/frame
+# and a Color ↔ B&W switch. Until /display/frame ships, try a frame from the dithered
+# preview, naming the mode so it gets the right dither (with the service stopped):
+#   inkypull once --url "http://hearth.local/display/preview?mode=daily"
 
 url = "http://hearth.local/display/frame"
 poll_interval = "1m"   # cheap: an unchanged frame is a 304
-rotate = 0             # the host already rotates portrait frames to the panel's landscape
+rotate = 0             # the host rotates portrait frames to the panel's native landscape
 error_after = 5
 
 [buttons]
@@ -18,11 +26,13 @@ long_press = "1s"
 [buttons.A]
 press = "refresh"
 
-[buttons.B]   # Ambient ↔ Daily
-press = { action = "http", method = "POST", url = "http://hearth.local/display/mode", json = { mode = "toggle" }, then = "refresh" }
+[buttons.B]   # next mode: Ambient → Daily → Photo → Countdown → Night → Note, held until the schedule's next change
+press = { action = "http", method = "POST", url = "http://hearth.local/display/mode/next", then = "refresh" }
+# hold: back to the mode schedule
+long_press = { action = "http", method = "DELETE", url = "http://hearth.local/display/mode/override", then = "refresh" }
 
-[buttons.C]   # Color ↔ B&W
-press = { action = "http", method = "POST", url = "http://hearth.local/display/mode", json = { palette = "toggle" }, then = "refresh" }
+[buttons.C]   # Color ↔ B&W — planned in Hearth; no endpoint yet
+press = "none"
 
 [buttons.D]
 press = "status"

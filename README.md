@@ -110,7 +110,7 @@ Any URL that returns an image works. To get the best results:
 - Render at the panel's resolution (1600×1200 for the 13.3").
 - For crisp UI, dither on the server and send a PNG that only uses the six Spectra 6 inks, in any palette order — black, white, yellow, red, blue, green. inkypull recognises both inky's pure values (`#000000 #ffffff #ffff00 #ff0000 #0000ff #00ff00`) and the measured, white-balanced ones (`#000000 #ffffff #ffff6e #f16f74 #5e5b91 #5a8d6c`) and maps them exactly.
 
-[`examples/hearth.toml`](examples/hearth.toml) is a complete config for Hearth, a self-hosted home dashboard.
+[`examples/hearth.toml`](examples/hearth.toml) is a complete config for [Hearth](https://hearth.lucas-vertrees.me), a self-hosted home dashboard: Button B steps through its frame modes (hold to go back to the schedule).
 
 ## Python API
 
