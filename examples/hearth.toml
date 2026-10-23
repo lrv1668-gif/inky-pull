@@ -1,34 +1,36 @@
 # inkypull configuration for a Hearth (self-hosted home dashboard) e-paper frame.
 #
-# Hearth's Display service serves the frame as a 6-colour palette PNG, already dithered
-# on the host (ordered for Daily, Countdown, Night and Note; error diffusion for the
-# Ambient and Photo modes), with an ETag — so inkypull shows it pixel-for-pixel and only
-# refreshes the panel when the frame actually changes. Replace hearth.local with your
-# host's address.
+# Hearth's Display service renders the frame on a schedule and serves the last render at
+# /display/frame: a PNG that only uses the panel's six inks, already dithered on the host
+# (ordered for Daily, Countdown, Night and Note; error diffusion for the Ambient and Photo
+# modes), at the panel's native landscape size (portrait frames are turned on the host),
+# with an ETag — so inkypull shows it pixel-for-pixel and only refreshes the panel when
+# the frame actually changes. How often Ambient/Photo change photo is set in Hearth's
+# Settings → Frame.
 #
-# Keep plain http://: Hearth's Caddy serves HTTPS with its own local CA, which the Pi
-# doesn't trust, and keeps port 80 open for LAN clients like the frame.
-#
-# Built in Hearth: the mode endpoints (POST /display/mode/next, DELETE
-# /display/mode/override). Still planned in Hearth's docs/HARDWARE.md: GET /display/frame
-# and a Color ↔ B&W switch. Until /display/frame ships, try a frame from the dithered
-# preview, naming the mode so it gets the right dither (with the service stopped):
-#   inkypull once --url "http://hearth.local/display/preview?mode=daily"
+# Replace hearth.local with your host's address — Hearth doesn't advertise hearth.local
+# over mDNS yet, so use its IP until it does. Keep plain http://: Hearth's Caddy serves
+# HTTPS with its own local CA, which the Pi doesn't trust, and keeps port 80 open for
+# LAN clients like the frame.
 
 url = "http://hearth.local/display/frame"
 poll_interval = "1m"   # cheap: an unchanged frame is a 304
-rotate = 0             # the host rotates portrait frames to the panel's native landscape
+# After a button press Hearth holds the request until the new frame is rendered (up to
+# 100 s), so allow longer than that.
+timeout = "120s"
+rotate = 0             # the host turns portrait frames to the panel's native landscape
 error_after = 5
 
 [buttons]
 long_press = "1s"
 
-[buttons.A]
+[buttons.A]   # refresh now (clears ghosting); hold: have Hearth re-render, e.g. after editing a task
 press = "refresh"
+long_press = { action = "http", method = "POST", url = "http://hearth.local/display/frame/refresh", then = "refresh" }
 
-[buttons.B]   # next mode: Ambient → Daily → Photo → Countdown → Night → Note, held until the schedule's next change
+[buttons.B]   # next mode: Ambient → Daily → Photo → Countdown → Night → Note, held until the schedule's next change (or until cleared, with no schedule)
 press = { action = "http", method = "POST", url = "http://hearth.local/display/mode/next", then = "refresh" }
-# hold: back to the mode schedule
+# hold: back to the mode schedule (this also clears a photo pinned with "Show on frame")
 long_press = { action = "http", method = "DELETE", url = "http://hearth.local/display/mode/override", then = "refresh" }
 
 [buttons.C]   # Color ↔ B&W — planned in Hearth; no endpoint yet
