@@ -121,3 +121,9 @@ def test_load_example_configs_are_valid():
     root = Path(__file__).parent.parent
     for path in [root / "config.example.toml", *sorted((root / "examples").glob("*.toml"))]:
         load(path)
+
+
+def test_long_poll_must_be_shorter_than_timeout():
+    assert parse({"url": "http://x/f.png", "long_poll": "90s", "timeout": "120s"}).long_poll == 90
+    with pytest.raises(ConfigError, match="shorter than `timeout`"):
+        parse({"url": "http://x/f.png", "long_poll": "60s"})  # timeout defaults to 30s

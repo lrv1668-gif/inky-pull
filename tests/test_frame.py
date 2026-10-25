@@ -186,3 +186,79 @@ def test_status_button_draws_status_screen(display, client):
         _settle(frame)
     assert len(display.shown) == 1
     assert display.shown[0].mode == "P"
+
+
+@respx.mock
+def test_run_polls_pass_wait_once_conditional(display, client):
+    route = respx.get(URL).mock(side_effect=[_png(etag='"1"'), httpx.Response(304)])
+    with _frame(display, client, long_poll=60, timeout="120s") as frame:
+        frame.poll_once(long_poll=True)
+        _settle(frame)
+        frame.poll_once(long_poll=True)
+    assert "wait" not in route.calls[0].request.url.params
+    assert route.calls[1].request.url.params["wait"] == "60"
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [(None, 300), ("120", 120), ("3600", 300), ("0", 1)],
+)
+@respx.mock
+def test_next_delay_follows_retry_after_capped_by_poll_interval(
+    display, client, retry_after, expected
+):
+    headers = {"etag": '"1"'} | ({"retry-after": retry_after} if retry_after else {})
+    respx.get(URL).mock(return_value=_png(**headers))
+    with _frame(display, client, poll_interval="5m") as frame:
+        frame.poll_once()
+        _settle(frame)
+        assert frame.next_delay(0.1, changed=True) == expected
+
+
+@respx.mock
+def test_next_delay_long_poll_goes_straight_back_unless_answered_at_once(display, client):
+    respx.get(URL).mock(return_value=httpx.Response(304, headers={"retry-after": "630"}))
+    with _frame(display, client, poll_interval="1m", long_poll="90s", timeout="120s") as frame:
+        frame._poller.restore({URL: {"etag": '"1"'}})
+        frame.poll_once(long_poll=True)
+        assert frame.next_delay(0.1, changed=True) == 60  # never held one: maybe ignores ?wait=
+        assert frame.next_delay(90, changed=False) == 0  # held: wait again now
+        frame._server_holds = True
+        assert frame.next_delay(0.1, changed=True) == 0  # a new image from a holding server
+        assert frame.next_delay(0.1, changed=False) == 60  # answered at once: not held
+
+
+@respx.mock
+def test_next_delay_without_validators_never_spins(display, client):
+    respx.get(URL).mock(side_effect=[_png(), _png(gradient((100, 100)))])
+    with _frame(display, client, poll_interval="1m", long_poll="90s", timeout="120s") as frame:
+        frame.poll_once(long_poll=True)
+        _settle(frame)
+        assert frame.poll_once(long_poll=True)  # new bytes every time, and no ?wait= sent
+        assert "wait" not in respx.calls[1].request.url.params
+        assert frame.next_delay(0.1, changed=True) == 60
+
+
+@respx.mock
+def test_next_delay_after_a_failure_uses_the_interval(display, client):
+    respx.get(URL).mock(side_effect=httpx.ConnectError("down"))
+    with _frame(display, client, poll_interval="1m", long_poll="90s", timeout="120s") as frame:
+        frame.poll_once(long_poll=True, show_errors=False)
+        assert frame.next_delay(90, changed=False) == 60
+
+
+@respx.mock
+def test_refresh_during_a_long_poll_fetches_right_away(display, client):
+    route = respx.get(URL).mock(return_value=_png(etag='"1"'))
+    with _frame(display, client) as frame:
+        frame.poll_once()
+        _settle(frame)
+        frame._long_polling = True  # as if run() were held in a long poll
+        frame.request_refresh()  # what the refresh button runs
+        frame.request_refresh()
+        _settle(frame)
+        assert not frame._force
+        assert frame._long_polling  # the forced fetches left the loop's long poll alone
+    # Both presses fetched at once (back-to-back redraws may be coalesced into one)
+    assert route.call_count == 3
+    assert len(display.shown) >= 2

@@ -5,6 +5,7 @@ Pull an image from a URL and show it on a [Pimoroni Inky](https://github.com/pim
 inkypull is a small, long-running thin client for a Raspberry Pi behind an Inky Impression. Something else renders the picture (a home dashboard, a script, a static file server); inkypull keeps the panel showing the latest version of it:
 
 - **Only refreshes when the image changed.** Conditional requests (`ETag` / `Last-Modified`), with a content-hash fallback for servers that send neither. A Spectra 6 refresh flickers for ~30 s, so this matters.
+- **Checks when the server says to.** A `Retry-After` on the response sets the next check (capped at `poll_interval`), and with `long_poll` the server can hold the request until the image changes, so a change shows up in seconds without polling every few seconds.
 - **Pre-dithered images pass straight through.** An image that only uses the panel's six inks (e.g. one a server already dithered with ordered/Bayer dithering) is sent undithered, pixel-for-pixel. Anything else — photos, screenshots — is dithered by `inky` (Floyd–Steinberg).
 - **Configurable buttons.** Each of A–D gets a press and a long-press action: refresh, call an HTTP endpoint, run a command, cycle between URLs, show a status screen.
 - **Calm failure.** After a few consecutive failures it draws a "can't reach" screen once, and goes back to the image as soon as the host answers again. State survives restarts, so a reboot doesn't redraw an unchanged picture.
@@ -61,7 +62,8 @@ See [`config.example.toml`](config.example.toml) for every setting. The essentia
 
 ```toml
 url = "http://example.com/frame.png"
-poll_interval = "5m"
+poll_interval = "5m"   # the longest gap between checks; a Retry-After can make it shorter
+# long_poll = "90s"    # ask the server to hold each check until the image changes (?wait=)
 fit = "contain"        # contain | cover | stretch
 rotate = 0             # 0 | 90 | 180 | 270 (clockwise) | "auto" for portrait images
 saturation = 0.5       # palette vividness for images inky dithers
@@ -107,6 +109,8 @@ Button pins on the smaller Impressions differ (C is GPIO 16) — `inkypull test-
 Any URL that returns an image works. To get the best results:
 
 - Send an `ETag` (and honour `If-None-Match` with `304`) so polling is nearly free.
+- Send `Retry-After` (seconds or an HTTP date) to say when the image will next change; inkypull checks then, or after `poll_interval` if that's sooner.
+- To push changes quickly, support a long poll: with `long_poll` set, a conditional request carries `?wait=<seconds>`, and the server holds it until the image changes (`200`) or the wait runs out (`304`). A server that answers at once is fine; inkypull notices and falls back to its interval.
 - Render at the panel's resolution (1600×1200 for the 13.3").
 - For crisp UI, dither on the server and send a PNG that only uses the six Spectra 6 inks, in any palette order — black, white, yellow, red, blue, green. inkypull recognises both inky's pure values (`#000000 #ffffff #ffff00 #ff0000 #0000ff #00ff00`) and the measured, white-balanced ones (`#000000 #ffffff #ffff6e #f16f74 #5e5b91 #5a8d6c`) and maps them exactly.
 
