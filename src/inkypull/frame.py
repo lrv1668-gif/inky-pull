@@ -7,6 +7,7 @@ import logging
 import os
 import socket
 import threading
+import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -63,6 +64,8 @@ class Frame:
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._force = False
+        self._long_polling = False
+        self._server_holds = False  # a long poll was held once, so ?wait= is honoured
         self._failures = 0
         self._on_panel: str | None = None
         self._queued: str | None = None
@@ -77,17 +80,38 @@ class Frame:
 
     # -- polling -------------------------------------------------------------------------
 
-    def poll_once(self, *, force: bool = False, show_errors: bool = True) -> bool:
+    def poll_once(
+        self, *, force: bool = False, show_errors: bool = True, long_poll: bool = False
+    ) -> bool:
         """Fetch the current URL and queue it if it changed. True if something was queued.
 
-        `force` downloads in full and redraws even an unchanged image.
+        `force` downloads in full and redraws even an unchanged image. `long_poll` (what
+        `run` passes) asks the server to hold the request until the image changes, for
+        up to the configured `long_poll`.
         """
         url = self.url
         full = force or self._source_on_panel() != url
+        wait = self.config.long_poll if long_poll and not full else None
+        if wait is not None:
+            # Only the loop's own long poll touches the flag: a forced fetch from a button
+            # while it's held mustn't clear it
+            with self._lock:
+                self._long_polling = True
+        started = time.monotonic()
         try:
-            fetched = self._poller.fetch(url, force=full)
+            fetched = self._poller.fetch(url, force=full, wait=wait)
         except FetchError as e:
             self._failed(e, show_errors)
+            return False
+        finally:
+            if wait is not None:
+                with self._lock:
+                    self._long_polling = False
+        if wait is not None and time.monotonic() - started >= wait / 2:
+            with self._lock:
+                self._server_holds = True
+        if self.url != url:
+            log.debug("source changed while fetching %s; dropping it", url)
             return False
 
         with self._lock:
@@ -116,14 +140,41 @@ class Frame:
     def run(self) -> None:
         """Poll until `stop()`; buttons and refresh requests wake the loop early."""
         self._buttons.start(self._on_button)
-        log.info("showing %s every %gs", self.url, self.config.poll_interval)
+        c = self.config
+        if c.long_poll:
+            log.info("showing %s, long-polling up to %gs", self.url, c.long_poll)
+        else:
+            log.info("showing %s, checking at least every %gs", self.url, c.poll_interval)
         while not self._stop.is_set():
             with self._lock:
                 force, self._force = self._force, False
-            if force or not in_quiet_hours(self.config.quiet_hours, self._now().time()):
-                self.poll_once(force=force)
-            self._wake.wait(self.config.poll_interval)
+            delay = c.poll_interval
+            if force or not in_quiet_hours(c.quiet_hours, self._now().time()):
+                started = time.monotonic()
+                changed = self.poll_once(force=force, long_poll=bool(c.long_poll))
+                delay = self.next_delay(time.monotonic() - started, changed)
+            if delay > 0:
+                self._wake.wait(delay)
             self._wake.clear()
+
+    def next_delay(self, elapsed: float, changed: bool) -> float:
+        """How long to sleep after a poll that took `elapsed` seconds.
+
+        With `long_poll`, a request the server held goes straight back to waiting, as does
+        a new image from a server that has held one before (the next request is a long
+        poll again). One answered at once — a server that ignores `?wait=`, or sends no
+        validators so `?wait=` is never sent — falls back to the interval, so it can't
+        spin. Otherwise the server's Retry-After, capped at `poll_interval` (it may be
+        hours away overnight) and at least a second.
+        """
+        c = self.config
+        with self._lock:
+            ok = self._failures == 0
+            holds = self._server_holds
+        if ok and c.long_poll and (elapsed >= c.long_poll / 2 or (changed and holds)):
+            return 0.0
+        retry = self._poller.retry_after
+        return c.poll_interval if retry is None else max(1.0, min(retry, c.poll_interval))
 
     def stop(self) -> None:
         self._stop.set()
@@ -151,7 +202,10 @@ class Frame:
     def request_refresh(self) -> None:
         """Fetch now and redraw, even if the image hasn't changed (e.g. to clear ghosting)."""
         with self._lock:
-            self._force = True
+            long_polling = self._long_polling
+            self._force = not long_polling
+        if long_polling:
+            self.poll_once(force=True)  # the loop is held in a long poll; don't wait for it
         self._wake.set()
 
     def poll_soon(self) -> None:
@@ -163,6 +217,10 @@ class Frame:
             self.url = url
             self._save_state()
         log.info("source is now %s", url)
+        with self._lock:
+            long_polling = self._long_polling
+        if long_polling:
+            self.poll_once()  # the loop is held in a long poll on the old URL
         self.poll_soon()  # a different source is never "unchanged", so this redraws
 
     def show_status(self) -> None:

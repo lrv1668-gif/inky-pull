@@ -14,10 +14,14 @@
 # LAN clients like the frame.
 
 url = "http://hearth.local/display/frame"
-poll_interval = "1m"   # cheap: an unchanged frame is a 304
-# After a button press Hearth holds the request until the new frame is rendered (up to
-# 100 s), so allow longer than that.
+# Hearth holds each check (?wait=) until the frame changes, so a Settings or mode change
+# reaches the panel in seconds. The wait counts from the request and includes Hearth's
+# wait for a render after a button press, so keep it under timeout.
+long_poll = "90s"
 timeout = "120s"
+# Only used when a check fails or isn't held; Hearth's Retry-After (when the next render
+# is ready) can make it sooner
+poll_interval = "5m"
 rotate = 0             # the host turns portrait frames to the panel's native landscape
 error_after = 5
 
