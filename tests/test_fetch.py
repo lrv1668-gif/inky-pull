@@ -1,9 +1,11 @@
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 import respx
 from conftest import gradient, png_bytes
 
-from inkypull.fetch import FetchError, Poller
+from inkypull.fetch import FetchError, Poller, parse_retry_after
 
 URL = "http://frame.example.com/frame.png"
 
@@ -101,3 +103,57 @@ def test_export_restore_round_trips(client):
     second = Poller(client)
     second.restore(first.export())
     assert second.fetch(URL) is None
+
+
+@respx.mock
+def test_fetch_long_poll_sends_wait_only_when_conditional(client):
+    route = respx.get(URL).mock(side_effect=[_png(etag='"v1"'), httpx.Response(304)])
+    poller = Poller(client)
+    poller.fetch(URL, wait=90)
+    poller.fetch(URL, wait=90)
+    assert "wait" not in route.calls[0].request.url.params
+    assert route.calls[1].request.url.params["wait"] == "90"
+
+
+@respx.mock
+def test_fetch_long_poll_keeps_the_urls_own_query(client):
+    url = URL + "?mode=daily"
+    route = respx.get(url__startswith=URL).mock(
+        side_effect=[_png(etag='"v1"'), httpx.Response(304)]
+    )
+    poller = Poller(client)
+    poller.fetch(url, wait=90)
+    poller.fetch(url, wait=90)
+    params = route.calls[1].request.url.params
+    assert params["mode"] == "daily" and params["wait"] == "90"
+
+
+@respx.mock
+def test_fetch_force_never_long_polls(client):
+    route = respx.get(URL).mock(return_value=_png(etag='"v1"'))
+    poller = Poller(client)
+    poller.fetch(URL)
+    poller.fetch(URL, force=True, wait=90)
+    assert "wait" not in route.calls[1].request.url.params
+
+
+@respx.mock
+def test_fetch_records_retry_after(client):
+    respx.get(URL).mock(
+        side_effect=[_png(etag='"v1"', **{"retry-after": "630"}), httpx.ConnectError("down")]
+    )
+    poller = Poller(client)
+    poller.fetch(URL)
+    assert poller.retry_after == 630
+    with pytest.raises(FetchError):
+        poller.fetch(URL)
+    assert poller.retry_after is None
+
+
+def test_parse_retry_after_seconds_and_dates():
+    now = datetime(2026, 10, 21, 7, 28, tzinfo=UTC)
+    assert parse_retry_after("120") == 120
+    assert parse_retry_after("Wed, 21 Oct 2026 07:30:00 GMT", now) == 120
+    assert parse_retry_after("Wed, 21 Oct 2026 07:00:00 GMT", now) == 0
+    assert parse_retry_after("soon") is None
+    assert parse_retry_after(None) is None

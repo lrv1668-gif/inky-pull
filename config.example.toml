@@ -7,8 +7,11 @@ url = "http://example.com/frame.png"
 # Extra request headers, e.g. for a token-protected endpoint.
 # headers = { Authorization = "Bearer change-me" }
 
-poll_interval = "5m"     # how often to check for a new image
+poll_interval = "5m"     # the longest gap between checks; a server's Retry-After can shorten it
 timeout = "30s"          # per request
+# Long poll: send ?wait=<seconds> with each conditional request, so a server that supports
+# it holds the request until the image changes. Must be shorter than timeout.
+# long_poll = "25s"
 
 # Images that use only the panel's six inks are shown exactly as-is. Everything else is
 # dithered by inky; saturation (0–1) picks how vivid its palette is.

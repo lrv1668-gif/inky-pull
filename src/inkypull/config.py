@@ -67,6 +67,7 @@ class Config:
     headers: dict[str, str] = field(default_factory=dict)
     poll_interval: float = 300.0
     timeout: float = 30.0
+    long_poll: float | None = None
     saturation: float = 0.5
     fit: str = "contain"
     background: str = "white"
@@ -122,9 +123,11 @@ def parse(data: dict[str, Any]) -> Config:
     kwargs: dict[str, Any] = {"url": url}
     if "headers" in data:
         kwargs["headers"] = _str_dict(data.pop("headers"), "headers")
-    for key in ("poll_interval", "timeout"):
+    for key in ("poll_interval", "timeout", "long_poll"):
         if key in data:
             kwargs[key] = parse_duration(data.pop(key), key)
+    if kwargs.get("long_poll", 0) >= kwargs.get("timeout", Config.timeout):
+        raise ConfigError("`long_poll` must be shorter than `timeout`, or requests time out first")
     if "saturation" in data:
         sat = data.pop("saturation")
         if not isinstance(sat, int | float) or not 0 <= sat <= 1:
