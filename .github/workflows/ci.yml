@@ -65,7 +65,7 @@ jobs:
           uv pip install --python /tmp/wheel-env dist/*.whl
           /tmp/wheel-env/bin/inkypull --version
           /tmp/wheel-env/bin/inkypull --help
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
